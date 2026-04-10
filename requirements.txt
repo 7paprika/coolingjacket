@@ -3,4 +3,4 @@ numpy>=1.24.0
 plotly>=5.18.0
 scipy>=1.11.0
 xhtml2pdf>=0.2.11
-kaleido>=0.2.1
+kaleido==0.1.0.post1
