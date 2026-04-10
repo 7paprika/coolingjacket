@@ -3,36 +3,98 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.integrate import odeint
 import math
+import json
+import zlib
+import base64
 
 st.set_page_config(page_title="Jacketed Vessel Engineering", layout="wide")
 st.title("🏭 Jacketed Vessel Process Design & Simulation")
 
 # ==========================================
-# 0. 데이터베이스 & SVG 그래픽
+# 0. 데이터베이스 & 상태 관리 로직 (복구 완료)
 # ==========================================
-# 임펠러 가이드 및 형태(SVG)
+# 재질별 열전도도 (W/m·K)
+MATERIAL_K = {
+    "Carbon Steel (SA-516)": 45.0,
+    "Stainless Steel 304": 16.0,
+    "Stainless Steel 316": 16.3,
+    "Titanium": 17.0,
+    "Glass-Lined (Steel base)": 1.2 
+}
+
+# 임펠러 가이드, Np 및 SVG 그래픽 (6종 완전 복구)
 AGITATOR_DB = {
     "Pitched Blade (4-Blade 45°)": {
         "Np": 1.27,
-        "desc": "혼합(Blending)과 열전달에 두루 쓰이는 표준형. 축 방향(Axial) 흐름을 형성하여 상하 믹싱에 유리합니다.",
-        "svg": """<svg viewBox="0 0 100 100" style="height:120px; background-color:#f8f9fa; border-radius:8px;"><path d="M 50 10 V 90" stroke="#2E4053" stroke-width="6"/><path d="M 30 40 L 70 60 M 30 60 L 70 40" stroke="#E74C3C" stroke-width="8" stroke-linecap="round"/></svg>"""
+        "desc": "혼합과 열전달에 두루 쓰이는 표준형. 축 방향(Axial) 흐름을 형성합니다.",
+        "svg": """<svg viewBox="0 0 100 100" style="height:100px; background-color:#f8f9fa; border-radius:8px;"><path d="M 50 10 V 90" stroke="#2E4053" stroke-width="6"/><path d="M 30 40 L 70 60 M 30 60 L 70 40" stroke="#E74C3C" stroke-width="8" stroke-linecap="round"/></svg>"""
     },
     "Rushton Turbine (6-Blade Flat)": {
         "Np": 5.0,
-        "desc": "강력한 전단력(High Shear)과 방사형(Radial) 흐름을 만듭니다. 기체 분산(Gas dispersion)이나 유화 공정에 적합하나 동력 소모가 큽니다.",
-        "svg": """<svg viewBox="0 0 100 100" style="height:120px; background-color:#f8f9fa; border-radius:8px;"><rect x="40" y="45" width="20" height="10" fill="#2E4053"/><path d="M 50 10 V 90 M 20 50 H 80 M 20 35 V 65 M 80 35 V 65" stroke="#E74C3C" stroke-width="6"/></svg>"""
+        "desc": "강력한 전단력(High Shear)과 방사형(Radial) 흐름. 기체 분산에 적합하나 동력 소모가 큽니다.",
+        "svg": """<svg viewBox="0 0 100 100" style="height:100px; background-color:#f8f9fa; border-radius:8px;"><rect x="40" y="45" width="20" height="10" fill="#2E4053"/><path d="M 50 10 V 90 M 20 50 H 80 M 20 35 V 65 M 80 35 V 65" stroke="#E74C3C" stroke-width="6"/></svg>"""
     },
     "Anchor (Nominal)": {
         "Np": 0.4,
-        "desc": "벽면과의 간극(Clearance)이 좁아 고점도(High Viscosity) 유체의 벽면 고착을 막고 열전달을 촉진하는 데 필수적입니다.",
-        "svg": """<svg viewBox="0 0 100 100" style="height:120px; background-color:#f8f9fa; border-radius:8px;"><path d="M 50 10 V 85 M 20 40 V 70 A 30 30 0 0 0 80 70 V 40" stroke="#E74C3C" stroke-width="8" fill="none" stroke-linecap="round"/></svg>"""
+        "desc": "고점도(High Viscosity) 유체의 벽면 고착을 막고 열전달을 촉진하는 데 필수적입니다.",
+        "svg": """<svg viewBox="0 0 100 100" style="height:100px; background-color:#f8f9fa; border-radius:8px;"><path d="M 50 10 V 85 M 20 40 V 70 A 30 30 0 0 0 80 70 V 40" stroke="#E74C3C" stroke-width="8" fill="none" stroke-linecap="round"/></svg>"""
+    },
+    "Flat Paddle (2-Blade)": {
+        "Np": 1.7,
+        "desc": "단순한 구조의 저속 교반용. 방사형 흐름을 만듭니다.",
+        "svg": """<svg viewBox="0 0 100 100" style="height:100px; background-color:#f8f9fa; border-radius:8px;"><rect x="30" y="40" width="40" height="20" fill="#E74C3C"/><path d="M 50 10 V 90" stroke="#2E4053" stroke-width="6"/></svg>"""
+    },
+    "Marine Propeller (3-Blade)": {
+        "Np": 0.35,
+        "desc": "저점도 유체의 고속 교반 및 고효율 축방향 순환에 유리합니다.",
+        "svg": """<svg viewBox="0 0 100 100" style="height:100px; background-color:#f8f9fa; border-radius:8px;"><path d="M 50 10 V 90" stroke="#2E4053" stroke-width="6"/><ellipse cx="50" cy="50" rx="30" ry="8" transform="rotate(30 50 50)" fill="#E74C3C"/><ellipse cx="50" cy="50" rx="30" ry="8" transform="rotate(-30 50 50)" fill="#E74C3C"/></svg>"""
+    },
+    "Retreat Curve (Glass-Lined)": {
+        "Np": 0.35,
+        "desc": "Glass-Lined 반응기 전용. 날개가 휘어져 있어 코팅 손상을 방지하며 부드럽게 교반합니다.",
+        "svg": """<svg viewBox="0 0 100 100" style="height:100px; background-color:#f8f9fa; border-radius:8px;"><path d="M 50 10 V 90" stroke="#2E4053" stroke-width="6"/><path d="M 50 80 Q 20 80 20 50" stroke="#E74C3C" stroke-width="8" fill="none"/><path d="M 50 80 Q 80 80 80 50" stroke="#E74C3C" stroke-width="8" fill="none"/></svg>"""
     }
 }
 
+def encode_state(state_dict):
+    json_str = json.dumps(state_dict)
+    compressed = zlib.compress(json_str.encode('utf-8'))
+    return base64.urlsafe_b64encode(compressed).decode('utf-8')
+
+def decode_state(b64_str):
+    try:
+        compressed = base64.urlsafe_b64decode(b64_str.encode('utf-8'))
+        return json.loads(zlib.decompress(compressed).decode('utf-8'))
+    except:
+        return {}
+
+# URL 파라미터 로드
+query_params = st.query_params
+init = decode_state(query_params.get("data", "")) if "data" in query_params else {}
+
 # ==========================================
-# 1. 메인 화면 탭 구성 (Inputs)
+# 1. 사이드바: 메타데이터 & 상태 저장 (복구 완료)
 # ==========================================
-tab1, tab2, tab3 = st.tabs(["⚙️ 1. Design Inputs", "🧮 2. Engineering Calcs (Logic)", "📈 3. Simulation"])
+with st.sidebar:
+    st.header("📌 Identifications")
+    tank_no = st.text_input("Vessel Tag No.", value=init.get("tank_no", "R-1001"))
+    jacket_no = st.text_input("Jacket Tag No.", value=init.get("jacket_no", "J-1001"))
+    service_name = st.text_input("Service Name", value=init.get("service_name", "Polymerization"))
+    
+    st.divider()
+    st.header("⏱️ Simulation Target")
+    t_target = st.number_input("Target Temp (°C)", value=init.get("t_target", 80.0))
+    time_limit = st.number_input("Sim. Time (min)", value=init.get("time_limit", 120), min_value=10)
+    
+    st.divider()
+    st.header("💾 State Management")
+    if st.button("Generate Share Link", type="primary", use_container_width=True):
+        st.session_state["save_trigger"] = True
+
+# ==========================================
+# 2. 메인 화면 탭 1: 입력부 (통합 완료)
+# ==========================================
+tab1, tab2, tab3 = st.tabs(["⚙️ 1. Design Inputs", "🧮 2. Engineering Calcs", "📈 3. Simulation"])
 
 with tab1:
     st.header("Step 1: Detailed Design Parameters")
@@ -40,62 +102,79 @@ with tab1:
     col_geom, col_agit, col_fluid = st.columns(3)
     
     with col_geom:
-        st.subheader("Geometry & Jacket")
-        d_in = st.number_input("Vessel ID (mm)", value=2000.0, step=100.0) / 1000.0
-        tt_len = st.number_input("T/T Length (mm)", value=3000.0, step=100.0) / 1000.0
-        wall_thk = st.number_input("Wall Thickness (mm)", value=12.0) / 1000.0
+        st.subheader("Geometry & Material")
+        d_in = st.number_input("Vessel ID (mm)", value=init.get("d_in", 2000.0), step=100.0) / 1000.0
+        tt_len = st.number_input("T/T Length (mm)", value=init.get("tt_len", 3000.0), step=100.0) / 1000.0
+        head_type = st.selectbox("Bottom Head Type", ["2:1 Ellipsoidal", "Hemispherical", "Torispherical"], index=["2:1 Ellipsoidal", "Hemispherical", "Torispherical"].index(init.get("head_type", "2:1 Ellipsoidal")))
+        
+        wall_mat = st.selectbox("Wall Material", list(MATERIAL_K.keys()), index=list(MATERIAL_K.keys()).index(init.get("wall_mat", "Stainless Steel 304")))
+        wall_thk = st.number_input("Wall Thickness (mm)", value=init.get("wall_thk", 12.0)) / 1000.0
+        jacket_coverage = st.number_input("Jacket Straight Coverage (%)", value=init.get("jacket_coverage", 80.0)) / 100.0
         
         st.divider()
-        jacket_type = st.selectbox("Jacket Type", ["Half-Pipe", "Conventional (with Baffle)", "Dimple"])
+        jacket_type = st.selectbox("Jacket Type", ["Half-Pipe", "Conventional (with Baffle)", "Dimple"], index=["Half-Pipe", "Conventional (with Baffle)", "Dimple"].index(init.get("jacket_type", "Half-Pipe")))
         if jacket_type == "Half-Pipe":
-            j_dim = st.number_input("Pipe ID (mm, 보통 3~4인치)", value=80.0) / 1000.0
+            j_dim = st.number_input("Pipe ID (mm, 보통 3~4인치)", value=init.get("j_dim", 80.0)) / 1000.0
+            j_pitch = 0.0
         elif jacket_type == "Conventional (with Baffle)":
-            j_dim = st.number_input("Annular Gap (mm, 간격)", value=50.0) / 1000.0
-            j_pitch = st.number_input("Baffle Pitch (mm)", value=200.0) / 1000.0
+            j_dim = st.number_input("Annular Gap (mm)", value=init.get("j_dim", 50.0)) / 1000.0
+            j_pitch = st.number_input("Baffle Pitch (mm)", value=init.get("j_pitch", 200.0)) / 1000.0
         else:
-            j_dim = 0 # Dimple은 복잡 형상이므로 치수 입력 제외
-            st.info("Dimple Jacket은 형상 복잡성으로 인해 경험식을 적용합니다.")
+            j_dim = 0.0; j_pitch = 0.0
 
     with col_agit:
         st.subheader("Agitator Specs")
-        agit_type = st.selectbox("Impeller Type", list(AGITATOR_DB.keys()))
+        agit_type = st.selectbox("Impeller Type", list(AGITATOR_DB.keys()), index=list(AGITATOR_DB.keys()).index(init.get("agit_type", "Pitched Blade (4-Blade 45°)")))
         
-        # 선택된 임펠러 정보 및 SVG 출력
         agit_info = AGITATOR_DB[agit_type]
         st.markdown(agit_info["svg"], unsafe_allow_html=True)
         st.caption(f"**Guide:** {agit_info['desc']}")
         st.caption(f"**Power Number ($N_p$):** {agit_info['Np']}")
         
-        rpm = st.number_input("Agitator Speed (RPM)", value=60.0)
-        d_agit = st.number_input("Impeller Diameter (mm)", value=800.0) / 1000.0
+        rpm = st.number_input("Agitator Speed (RPM)", value=init.get("rpm", 60.0))
+        d_agit = st.number_input("Impeller Diameter (mm)", value=init.get("d_agit", 800.0)) / 1000.0
 
     with col_fluid:
-        st.subheader("Process & Service Fluid")
+        st.subheader("Fluid Properties")
         st.markdown("**Process Fluid (Inside)**")
-        rho_p = st.number_input("Density (kg/m³)", value=1000.0)
-        cp_p = st.number_input("Specific Heat (J/kg·K)", value=4184.0)
-        mu_cp = st.number_input("Viscosity (cP)", value=5.0) 
-        k_p = st.number_input("Thermal Cond. (W/m·K)", value=0.6)
-        
-        st.markdown("**Service Fluid (Jacket - e.g., Cooling Water)**")
-        q_service = st.number_input("Service Flow Rate (m³/h)", value=15.0)
-        t_service = st.number_input("Service Temp (°C)", value=15.0)
-        st.caption("※ 이 시뮬레이션에서는 Service 유체를 물(Water) 기준으로 동적 점도, 밀도를 간이 적용하여 계산합니다.")
+        rho_p = st.number_input("Density (kg/m³)", value=init.get("rho_p", 1000.0))
+        cp_p = st.number_input("Specific Heat (J/kg·K)", value=init.get("cp_p", 4184.0))
+        mu_cp = st.number_input("Viscosity (cP)", value=init.get("mu_cp", 5.0), format="%.2f") 
+        k_p = st.number_input("Thermal Cond. (W/m·K)", value=init.get("k_p", 0.6))
+        t_initial = st.number_input("Initial Temp (°C)", value=init.get("t_initial", 20.0))
+
+        st.markdown("**Service Fluid (Jacket)**")
+        q_service = st.number_input("Service Flow Rate (m³/h)", value=init.get("q_service", 15.0))
+        t_service = st.number_input("Service Temp (°C)", value=init.get("t_service", 150.0))
+
+# --- Save State Trigger Logic ---
+if st.session_state.get("save_trigger"):
+    current_state = {
+        "tank_no": tank_no, "jacket_no": jacket_no, "service_name": service_name,
+        "t_target": t_target, "time_limit": time_limit,
+        "d_in": d_in*1000, "tt_len": tt_len*1000, "head_type": head_type, 
+        "wall_mat": wall_mat, "wall_thk": wall_thk*1000, "jacket_coverage": jacket_coverage*100,
+        "jacket_type": jacket_type, "j_dim": j_dim*1000, "j_pitch": j_pitch*1000,
+        "agit_type": agit_type, "rpm": rpm, "d_agit": d_agit*1000,
+        "rho_p": rho_p, "cp_p": cp_p, "mu_cp": mu_cp, "k_p": k_p, "t_initial": t_initial,
+        "q_service": q_service, "t_service": t_service
+    }
+    st.query_params["data"] = encode_state(current_state)
+    st.session_state["save_trigger"] = False
+    st.sidebar.success("✅ Link Updated! Copy the URL.")
 
 # ==========================================
-# 2. 메인 화면 탭 구성 (Calculations & Logic Exposure)
+# 3. 메인 화면 탭 2: 계산 로직 (에러 수정 및 통합)
 # ==========================================
 with tab2:
     st.header("Step 2: Heat Transfer Calculation Logic")
     
-    # 기초 변환
-    k_wall = 16.0 # SS304 기준
-    mu_p = mu_cp * 0.001
+    k_wall = MATERIAL_K[wall_mat]
+    mu_p = mu_cp * 0.001 # cP to Pa.s
     N_rps = rpm / 60.0
-    Q_sec = q_service / 3600.0 # m3/s
+    Q_sec = q_service / 3600.0 
     
-    # Service Fluid (Water) Assumed Properties
-    rho_s, mu_s, k_s, Pr_s = 998.0, 0.001, 0.6, 7.0 
+    rho_s, mu_s, k_s, Pr_s = 998.0, 0.001, 0.6, 7.0 # Assumed Service Water
     
     st.subheader("1. Inside Film Coefficient ($h_i$) - Agitation")
     Re_agit = (rho_p * N_rps * (d_agit**2)) / mu_p
@@ -109,38 +188,34 @@ with tab2:
     st.divider()
     st.subheader("2. Outside Film Coefficient ($h_o$) - Jacket Type")
     
-    # Jacket 형태별 분기 계산 노출
     if jacket_type == "Half-Pipe":
-        De = 0.61 * j_dim # 수력학적 직경
-        A_cross = (math.pi * j_dim**2) / 8 # 반원 단면적
-        v_s = Q_sec / A_cross
+        De = 0.61 * j_dim
+        A_cross = (math.pi * j_dim**2) / 8
+        v_s = Q_sec / A_cross if A_cross > 0 else 0
         Re_s = (rho_s * v_s * De) / mu_s
-        Nu_s = 0.023 * (Re_s**0.8) * (Pr_s**0.4) # Dittus-Boelter
-        h_o_calc = (Nu_s * k_s) / De
+        Nu_s = 0.023 * (Re_s**0.8) * (Pr_s**0.4)
+        h_o_calc = (Nu_s * k_s) / De if De > 0 else 0
         
-        st.info("💡 **Half-Pipe Logic:** 반원형 덕트 유동으로 간주하여 높은 유속과 강한 난류(Turbulent) 형성을 확인합니다.")
-        st.latex(r"D_e \approx 0.61 \cdot d_{pipe} = " + f"{De:.4f} \text{ m}")
-        st.latex(r"v = \frac{Q}{A_c} = " + f"{v_s:.2f} \text{ m/s}")
+        st.latex(r"D_e \approx 0.61 \cdot d_{pipe} = " + f"{De:.4f}" + r" \text{ m}")
+        st.latex(r"v = \frac{Q}{A_c} = " + f"{v_s:.2f}" + r" \text{ m/s}")
         st.latex(r"Re_o = " + f"{Re_s:,.0f}")
         st.latex(r"h_o = \frac{Nu \cdot k}{D_e} = \mathbf{" + f"{h_o_calc:.1f}" + r" \text{ W/m}^2\text{K}}")
 
     elif jacket_type == "Conventional (with Baffle)":
-        De = 2 * j_dim # Gap
+        De = 2 * j_dim
         A_cross = j_dim * j_pitch
-        v_s = Q_sec / A_cross
+        v_s = Q_sec / A_cross if A_cross > 0 else 0
         Re_s = (rho_s * v_s * De) / mu_s
         Nu_s = 0.027 * (Re_s**0.8) * (Pr_s**0.33)
-        h_o_calc = (Nu_s * k_s) / De
+        h_o_calc = (Nu_s * k_s) / De if De > 0 else 0
         
-        st.info("💡 **Conventional Logic:** Annular Gap과 Baffle Pitch에 의해 단면적이 결정됩니다. 유속이 상대적으로 느립니다.")
-        st.latex(r"D_e \approx 2 \cdot Gap = " + f"{De:.4f} \text{ m}")
-        st.latex(r"v = \frac{Q}{Gap \times Pitch} = " + f"{v_s:.2f} \text{ m/s}")
+        st.latex(r"D_e \approx 2 \cdot Gap = " + f"{De:.4f}" + r" \text{ m}")
+        st.latex(r"v = \frac{Q}{Gap \times Pitch} = " + f"{v_s:.2f}" + r" \text{ m/s}")
         st.latex(r"Re_o = " + f"{Re_s:,.0f}")
         st.latex(r"h_o = \mathbf{" + f"{h_o_calc:.1f}" + r" \text{ W/m}^2\text{K}}")
 
-    else: # Dimple
-        h_o_calc = 1500.0 # Vendor Assumed
-        st.warning("💡 **Dimple Logic:** 형상 내부의 3차원 Vortex 발생으로 1차원 배관 수식 적용이 불가합니다. Vendor 보수적 경험값(1500 W/m²K)을 적용합니다.")
+    else:
+        h_o_calc = 1500.0
         st.latex(r"h_o \approx \mathbf{1500.0 \text{ W/m}^2\text{K}} \text{ (Empirical)}")
 
     st.divider()
@@ -151,25 +226,41 @@ with tab2:
     st.latex(r"U = \frac{1}{\frac{1}{h_i} + R_{fi} + \frac{t}{k} + R_{fo} + \frac{1}{h_o}} = \mathbf{" + f"{U_calc:.1f}" + r" \text{ W/m}^2\text{K}}")
 
 # ==========================================
-# 3. 메인 화면 탭 구성 (Simulation)
+# 4. 메인 화면 탭 3: 시뮬레이션
 # ==========================================
 with tab3:
     st.header("Step 3: Dynamic Temperature Curve")
-    st.write(f"계산된 최종 **U-Value: {U_calc:.1f} W/m²K** 를 바탕으로 시간에 따른 온도를 시뮬레이션합니다.")
     
-    # 임시 볼륨 및 면적 (Geometry 상세 계산은 생략하고 근사치 적용)
-    v_total = (math.pi / 4) * (d_in**2) * tt_len * 1.2
-    a_jacket = math.pi * d_in * tt_len * 0.8
+    v_cyl = (math.pi / 4) * (d_in**2) * tt_len
+    if head_type == "2:1 Ellipsoidal":
+        v_head = (math.pi / 24) * (d_in**3)
+    elif head_type == "Hemispherical":
+        v_head = (math.pi / 12) * (d_in**3)
+    else:
+        v_head = 0.08 * (d_in**3)
+        
+    v_total = v_cyl + v_head
+    a_jacket = (math.pi * d_in * tt_len * jacket_coverage) + (1.084 * (d_in**2)) # Approximate bottom area
+    
     M_cp_total = v_total * rho_p * cp_p 
     P_agit_watts = AGITATOR_DB[agit_type]["Np"] * rho_p * (N_rps**3) * (d_agit**5)
     
     def jacket_ode(T, t, U, A, T_s, M_cp, Q_a):
         return (U * A * (T_s - T) + Q_a) / M_cp
 
-    t_span = np.linspace(0, 120 * 60, 500)
-    T_solution = odeint(jacket_ode, 20.0, t_span, args=(U_calc, a_jacket, t_service, M_cp_total, P_agit_watts))
+    t_span = np.linspace(0, time_limit * 60, 500)
+    T_solution = odeint(jacket_ode, t_initial, t_span, args=(U_calc, a_jacket, t_service, M_cp_total, P_agit_watts))
+    T_profile = T_solution.flatten()
+    time_min = t_span / 60
+    
+    target_idx = np.where(T_profile >= t_target)[0] if t_service > t_initial else np.where(T_profile <= t_target)[0]
+    if len(target_idx) > 0:
+        st.success(f"✅ 목표 온도({t_target}°C) 도달 예상 시간: **{time_min[target_idx[0]]:.1f} 분**")
+    else:
+        st.error(f"❌ 설정된 시간({time_limit}분) 내에 목표 온도에 도달하지 못합니다.")
     
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=t_span/60, y=T_solution.flatten(), line=dict(color='firebrick', width=3)))
-    fig.update_layout(xaxis_title='Time (min)', yaxis_title='Temp (°C)', height=400)
+    fig.add_trace(go.Scatter(x=time_min, y=T_profile, line=dict(color='firebrick', width=3), name='Temp'))
+    fig.add_hline(y=t_target, line_dash="dash", line_color="green", annotation_text="Target Temp")
+    fig.update_layout(xaxis_title='Time (min)', yaxis_title='Temp (°C)', height=400, template="plotly_white")
     st.plotly_chart(fig, use_container_width=True)
