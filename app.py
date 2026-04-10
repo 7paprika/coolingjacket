@@ -313,8 +313,24 @@ with tab3:
         st.plotly_chart(fig, use_container_width=True)
 
     try:
-        fig_bytes = fig.to_image(format="png", width=700, height=350, engine="kaleido")
-        fig_b64 = base64.b64encode(fig_bytes).decode('utf-8')
+        import matplotlib.pyplot as plt
+        import io
+        
+        fig_mpl, ax = plt.subplots(figsize=(8, 4))
+        ax.plot(time_min, T_profile, color='#ff4b4b', linewidth=2.5, label='Temp Profile')
+        ax.axhline(y=t_target, color='#00cc96', linestyle='--', linewidth=2, label='Target Temp')
+        ax.set_xlabel('Time (min)')
+        ax.set_ylabel('Temp (°C)')
+        ax.grid(True, linestyle='--', alpha=0.5)
+        ax.legend()
+        fig_mpl.tight_layout()
+        
+        buf = io.BytesIO()
+        fig_mpl.savefig(buf, format='png', dpi=150)
+        plt.close(fig_mpl)
+        
+        buf.seek(0)
+        fig_b64 = base64.b64encode(buf.read()).decode('utf-8')
         fig_img_html = f'<img src="data:image/png;base64,{fig_b64}" style="max-width:100%; border: 1px solid #ddd; border-radius:8px;">'
     except Exception as e:
         fig_img_html = f"<div style='border:1px dashed #ccc; padding:20px; text-align:center; color:#e00;'>[Simulation Chart image generation failed for PDF: {str(e)}]</div>"
