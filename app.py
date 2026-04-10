@@ -308,6 +308,8 @@ with tab3:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=time_min, y=T_profile, line=dict(color='#ff4b4b', width=3), name='Temp Profile'))
     fig.add_hline(y=t_target, line_dash="dash", line_color="#00cc96", annotation_text="Target Temp")
+    if time_to_target is not None:
+        fig.add_vline(x=time_to_target, line_dash="dot", line_color="#3498DB", annotation_text=f"Reached: {time_to_target:.1f} min", annotation_position="bottom right")
     fig.update_layout(xaxis_title='Time (min)', yaxis_title='Temp (°C)', height=400, template="plotly_white", margin=dict(l=20, r=20, t=30, b=20))
     with st.container(border=True):
         st.plotly_chart(fig, use_container_width=True)
@@ -319,6 +321,12 @@ with tab3:
         fig_mpl, ax = plt.subplots(figsize=(8, 4))
         ax.plot(time_min, T_profile, color='#ff4b4b', linewidth=2.5, label='Temp Profile')
         ax.axhline(y=t_target, color='#00cc96', linestyle='--', linewidth=2, label='Target Temp')
+        
+        if time_to_target is not None:
+            ax.axvline(x=time_to_target, color='#3498DB', linestyle=':', label=f'Target Reached ({time_to_target:.1f} m)')
+            ax.plot(time_to_target, t_target, 'ko', markersize=5)
+            ax.text(time_to_target + (time_limit * 0.02), t_target + (t_target * 0.02), f"{time_to_target:.1f} min", color='#3498DB', fontweight='bold')
+            
         ax.set_xlabel('Time (min)')
         ax.set_ylabel('Temp (°C)')
         ax.grid(True, linestyle='--', alpha=0.5)
