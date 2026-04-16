@@ -9,7 +9,16 @@ import base64
 
 from core.config import MATERIAL_K, AGITATOR_DB, SERVICE_FLUID_DB
 from core.fluid import get_service_fluid_props
-from core.calc import calculate_hi, calculate_ho_area, jacket_ode
+from core.calc import (
+    SimulationInputs,
+    build_share_state,
+    calculate_hi,
+    calculate_ho_area,
+    determine_operation_mode,
+    find_time_to_target,
+    jacket_ode,
+    validate_inputs,
+)
 from utils.i18n import i18n
 from utils.export import generate_html, create_pdf
 
@@ -57,25 +66,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-lang_opt = st.sidebar.radio("Language / 언어", ["en", "ko"])
-t = i18n[lang_opt]
-
-st.title(t["title"])
-
 def encode_state(state_dict):
     json_str = json.dumps(state_dict)
     compressed = zlib.compress(json_str.encode('utf-8'))
     return base64.urlsafe_b64encode(compressed).decode('utf-8')
 
+
 def decode_state(b64_str):
     try:
         compressed = base64.urlsafe_b64decode(b64_str.encode('utf-8'))
         return json.loads(zlib.decompress(compressed).decode('utf-8'))
-    except:
+    except Exception:
         return {}
+
 
 query_params = st.query_params
 init = decode_state(query_params.get("data", "")) if "data" in query_params else {}
+lang_opt = st.sidebar.radio("Language / 언어", ["en", "ko"], index=["en", "ko"].index(init.get("lang_opt", "en")))
+t = i18n[lang_opt]
+
+st.title(t["title"])
 
 # ==========================================
 # 1. 사이드바 (정보 및 상태 저장)
@@ -137,15 +147,15 @@ with tab1:
                 
         with st.container(border=True):
             st.subheader("🔥 Reaction Heat")
-            has_rxn = st.checkbox("Include Heat of Reaction", value=False, help=t["h_hrxn"])
-            q_rxn_kw = st.number_input("Q_rxn (kW, + is Exothermic)", value=0.0, help=t["h_qrxn"]) if has_rxn else 0.0
+            has_rxn = st.checkbox("Include Heat of Reaction", value=init.get("has_rxn", False), help=t["h_hrxn"])
+            q_rxn_kw = st.number_input("Q_rxn (kW, + is Exothermic)", value=init.get("q_rxn_kw", 0.0), help=t["h_qrxn"]) if has_rxn else 0.0
 
         with st.container(border=True):
             st.subheader("🦠 Fouling Factors (m²K/W)")
             with st.expander("TEMA Recommended Values / 권장값 가이드"):
                 st.markdown("- Organics / Polymers: ~0.0002 to 0.0004\n- Cooling Water (Utility): ~0.0002\n- Steam Condensing: ~0.0001\n- Brine: ~0.0002")
-            r_fi = st.number_input("Inside Fouling (R_fi)", value=0.0002, format="%.5f")
-            r_fo = st.number_input("Outside Fouling (R_fo)", value=0.0002, format="%.5f")
+            r_fi = st.number_input("Inside Fouling (R_fi)", value=init.get("r_fi", 0.0002), format="%.5f")
+            r_fo = st.number_input("Outside Fouling (R_fo)", value=init.get("r_fo", 0.0002), format="%.5f")
 
     with c3:
         with st.container(border=True):
@@ -158,41 +168,99 @@ with tab1:
 
         with st.container(border=True):
             st.subheader("💧 Service Fluid (Jacket)")
-            service_fluid_type = st.selectbox("Fluid Type", ["Water", "Thermal Oil (Dowtherm A)", "Steam (Condensing)", "Brine (20% NaCl)", "Custom"], index=0, help=t["h_stype"])
+            service_fluid_options = ["Water", "Thermal Oil (Dowtherm A)", "Steam (Condensing)", "Brine (20% NaCl)", "Custom"]
+            service_fluid_type = st.selectbox(
+                "Fluid Type",
+                service_fluid_options,
+                index=service_fluid_options.index(init.get("service_fluid_type", "Water")),
+                help=t["h_stype"],
+            )
             q_service = st.number_input("Service Flow Rate (m³/h)", value=init.get("q_service", 15.0), help=t["h_qserv"])
             t_service = st.number_input("Service Inlet Temp (°C)", value=init.get("t_service", 150.0), help=t["h_tserv"])
             
             c_dict = None
             if service_fluid_type == "Custom":
+                custom_init = init.get("custom_fluid_data", {})
                 st.caption("Enter 2 Temperature points for interpolation (T1 < T2)")
                 tc1, tc2 = st.columns(2)
                 with tc1:
-                    c_t1 = st.number_input("T1 (°C)", value=20.0)
-                    c_rho1 = st.number_input("ρ1 (kg/m³)", value=1000.0)
-                    c_cp1 = st.number_input("Cp1 (J/kg·K)", value=4180.0)
-                    c_mu1 = st.number_input("μ1 (cP)", value=1.0)
-                    c_k1 = st.number_input("k1 (W/m·K)", value=0.6)
+                    c_t1 = st.number_input("T1 (°C)", value=custom_init.get("t1", 20.0))
+                    c_rho1 = st.number_input("ρ1 (kg/m³)", value=custom_init.get("rho1", 1000.0))
+                    c_cp1 = st.number_input("Cp1 (J/kg·K)", value=custom_init.get("cp1", 4180.0))
+                    c_mu1 = st.number_input("μ1 (cP)", value=custom_init.get("mu1", 1.0))
+                    c_k1 = st.number_input("k1 (W/m·K)", value=custom_init.get("k1", 0.6))
                 with tc2:
-                    c_t2 = st.number_input("T2 (°C)", value=100.0)
-                    c_rho2 = st.number_input("ρ2 (kg/m³)", value=958.0)
-                    c_cp2 = st.number_input("Cp2 (J/kg·K)", value=4216.0)
-                    c_mu2 = st.number_input("μ2 (cP)", value=0.28)
-                    c_k2 = st.number_input("k2 (W/m·K)", value=0.679)
+                    c_t2 = st.number_input("T2 (°C)", value=custom_init.get("t2", 100.0))
+                    c_rho2 = st.number_input("ρ2 (kg/m³)", value=custom_init.get("rho2", 958.0))
+                    c_cp2 = st.number_input("Cp2 (J/kg·K)", value=custom_init.get("cp2", 4216.0))
+                    c_mu2 = st.number_input("μ2 (cP)", value=custom_init.get("mu2", 0.28))
+                    c_k2 = st.number_input("k2 (W/m·K)", value=custom_init.get("k2", 0.679))
                 c_dict = {"t1":c_t1, "t2":c_t2, "rho1":c_rho1, "rho2":c_rho2, "cp1":c_cp1, "cp2":c_cp2, "mu1":c_mu1, "mu2":c_mu2, "k1":c_k1, "k2":c_k2}
 
+sim_inputs = SimulationInputs(
+    d_in=d_in,
+    tt_len=tt_len,
+    wall_thk=wall_thk,
+    jacket_coverage=jacket_coverage,
+    d_agit=d_agit,
+    rpm=rpm,
+    rho_p=rho_p,
+    cp_p=cp_p,
+    mu_p=mu_cp * 0.001,
+    k_p=k_p,
+    q_service_m3_h=q_service,
+    t_initial=t_initial,
+    t_service=t_service,
+    t_target=t_target,
+    time_limit_min=time_limit,
+)
+validation_errors = validate_inputs(sim_inputs)
+
 if st.session_state.get("save_trigger"):
-    current_state = {
-        "tank_no": tank_no, "jacket_no": jacket_no, "service_name": service_name, "t_target": t_target, "time_limit": time_limit,
-        "d_in": d_in*1000, "tt_len": tt_len*1000, "head_type": head_type, "wall_mat": wall_mat, "wall_thk": wall_thk*1000, "jacket_coverage": jacket_coverage*100,
-        "jacket_type": jacket_type, "j_dim": j_dim*1000, "j_pitch": j_pitch*1000, "agit_type": agit_type, "rpm": rpm, "d_agit": d_agit*1000,
-        "rho_p": rho_p, "cp_p": cp_p, "mu_cp": mu_cp, "k_p": k_p, "t_initial": t_initial, "q_service": q_service, "t_service": t_service
-    }
+    current_state = build_share_state(
+        tank_no=tank_no,
+        jacket_no=jacket_no,
+        service_name=service_name,
+        t_target=t_target,
+        time_limit=time_limit,
+        d_in=d_in * 1000,
+        tt_len=tt_len * 1000,
+        head_type=head_type,
+        wall_mat=wall_mat,
+        wall_thk=wall_thk * 1000,
+        jacket_coverage=jacket_coverage * 100,
+        jacket_type=jacket_type,
+        j_dim=j_dim * 1000,
+        j_pitch=j_pitch * 1000,
+        agit_type=agit_type,
+        rpm=rpm,
+        d_agit=d_agit * 1000,
+        has_rxn=has_rxn,
+        q_rxn_kw=q_rxn_kw,
+        r_fi=r_fi,
+        r_fo=r_fo,
+        rho_p=rho_p,
+        cp_p=cp_p,
+        mu_cp=mu_cp,
+        k_p=k_p,
+        t_initial=t_initial,
+        service_fluid_type=service_fluid_type,
+        q_service=q_service,
+        t_service=t_service,
+        custom_fluid_data=c_dict,
+        lang_opt=lang_opt,
+    )
     st.query_params["data"] = encode_state(current_state)
     st.session_state["save_trigger"] = False
     st.sidebar.success("✅ Link Updated! Copy the URL.")
 
 with tab2:
     st.header(t["tab2"])
+    if validation_errors:
+        for error in validation_errors:
+            st.error(f"⚠️ {error}")
+        st.stop()
+
     k_wall = MATERIAL_K[wall_mat]
     mu_p = mu_cp * 0.001 
     N_rps = rpm / 60.0
@@ -215,7 +283,7 @@ with tab2:
     st.info(desc_hi_ui)
     hi_calc_html = ""
     if "None" in agit_type:
-        st.write(f"**Agitator Type: {agit_type}** | 자연 대류(Natural Convection) 적용 (가정: $\Delta T=10K, \beta=0.0002$)")
+        st.write(f"**Agitator Type: {agit_type}** | 자연 대류(Natural Convection) 적용 (가정: delta T = 10 K, beta = 0.0002)")
         st.latex(r"Gr = \frac{\rho_p^2 \cdot g \cdot \beta \cdot \Delta T \cdot D_{in}^3}{\mu_p^2} = " + f"{Gr:,.0f}")
         st.latex(r"Pr_p = \frac{C_{p,p} \cdot \mu_p}{k_p} = " + f"{Pr_p:.2f}")
         st.latex(r"Ra = Gr \cdot Pr_p = " + f"{Ra:,.0f}")
@@ -295,10 +363,14 @@ with tab3:
     T_solution = odeint(jacket_ode, t_initial, t_span, args=(effective_UA, t_service, M_cp_total, P_agit_watts, Q_rxn_W))
     T_profile = T_solution.flatten()
     time_min = t_span / 60
-    
-    op_mode = "Heating Mode" if t_service > t_initial else "Cooling Mode"
-    target_idx = np.where(T_profile >= t_target)[0] if op_mode == "Heating Mode" else np.where(T_profile <= t_target)[0]
-    time_to_target = time_min[target_idx[0]] if len(target_idx) > 0 else None
+
+    try:
+        op_mode = determine_operation_mode(t_initial, t_service, t_target)
+    except ValueError as exc:
+        st.error(f"⚠️ {exc}")
+        st.stop()
+
+    time_to_target = find_time_to_target(T_profile, time_min, t_target, op_mode)
     
     if time_to_target is not None:
         st.success(f"✅ 목표 온도 도달 예상 시간: **{time_to_target:.1f} min**")
