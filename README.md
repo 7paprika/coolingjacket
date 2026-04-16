@@ -15,6 +15,7 @@ Streamlit 기반 Jacketed Vessel Engineering 계산 앱입니다.
 - 비물리적 heating/cooling target 방향 검증 추가
 - 목표 온도 도달 시간 계산 로직을 순수 함수로 분리
 - 공유 링크에 reaction/fouling/custom fluid/language 정보 보존
+- Half-Pipe는 이제 pitch 기반 권취 수(turns), 총 helix 길이, 유효 contact area를 반영
 - 테스트 추가
 - README/pyproject/CI 추가
 

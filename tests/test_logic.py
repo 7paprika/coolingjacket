@@ -28,6 +28,8 @@ def sample_inputs(**overrides):
         "t_service": 150.0,
         "t_target": 80.0,
         "time_limit_min": 120.0,
+        "jacket_type": "Half-Pipe",
+        "j_pitch": 0.10,
     }
     data.update(overrides)
     return SimulationInputs(**data)
