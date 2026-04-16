@@ -119,39 +119,53 @@ with tab1:
             head_type = st.selectbox("Bottom Head Type", ["2:1 Ellipsoidal", "Hemispherical", "Torispherical"], index=["2:1 Ellipsoidal", "Hemispherical", "Torispherical"].index(init.get("head_type", "2:1 Ellipsoidal")), help=t["h_head"])
             wall_mat = st.selectbox("Wall Material", list(MATERIAL_K.keys()), index=list(MATERIAL_K.keys()).index(init.get("wall_mat", "Stainless Steel 304")), help=t["h_mat"])
             wall_thk = st.number_input("Wall Thickness (mm)", value=init.get("wall_thk", 12.0), help=t["h_thk"]) / 1000.0
-            jacket_coverage = st.number_input("Jacket Straight Coverage (%)", value=init.get("jacket_coverage", 80.0), help=t["h_cov"]) / 100.0
             
         with st.container(border=True):
             st.subheader("🔧 Jacket Configuration")
             jacket_type = st.selectbox("Jacket Type", ["Half-Pipe", "Conventional (with Baffle)", "Dimple"], index=["Half-Pipe", "Conventional (with Baffle)", "Dimple"].index(init.get("jacket_type", "Half-Pipe")), help=t["h_jtype"])
             if jacket_type == "Half-Pipe":
                 j_dim = st.number_input("Pipe ID (mm)", value=init.get("j_dim", 80.0), help=t["h_jdim"]) / 1000.0
-                half_pipe_mode_options = ["coverage", "turns"]
-                half_pipe_mode = st.radio(
-                    "Half-Pipe Input Mode",
+                half_pipe_mode_options = [t["half_pipe_mode_coverage"], t["half_pipe_mode_turns"]]
+                saved_half_pipe_mode = init.get("half_pipe_mode", "coverage")
+                saved_half_pipe_mode_label = t["half_pipe_mode_turns"] if saved_half_pipe_mode == "turns" else t["half_pipe_mode_coverage"]
+                selected_half_pipe_mode_label = st.radio(
+                    t["half_pipe_input_mode"],
                     half_pipe_mode_options,
-                    index=half_pipe_mode_options.index(init.get("half_pipe_mode", "coverage")),
+                    index=half_pipe_mode_options.index(saved_half_pipe_mode_label),
                     horizontal=True,
-                    help="coverage: use covered height ratio / turns: enter wrap count directly",
+                    help=t["half_pipe_mode_help"],
                 )
-                j_pitch = st.number_input("Half-Pipe Pitch (mm)", value=init.get("j_pitch", 100.0), help="Helical pitch between half-pipe centerlines") / 1000.0
+                half_pipe_mode = "coverage" if selected_half_pipe_mode_label == t["half_pipe_mode_coverage"] else "turns"
+                j_pitch = st.number_input(t["half_pipe_pitch_label"], value=init.get("j_pitch", 100.0), help=t["half_pipe_pitch_help"]) / 1000.0
                 if half_pipe_mode == "turns":
                     half_pipe_turn_count = st.number_input(
-                        "Half-Pipe Turn Count",
-                        value=float(init.get("half_pipe_turn_count", max((tt_len * jacket_coverage) / j_pitch if j_pitch > 0 else 1.0, 1.0))),
+                        t["half_pipe_turn_count_label"],
+                        value=float(init.get("half_pipe_turn_count", max((tt_len * init.get("jacket_coverage", 80.0) / 100.0) / j_pitch if j_pitch > 0 else 1.0, 1.0))),
                         min_value=0.1,
                         step=1.0,
-                        help="Directly specify how many helical wraps are installed on the straight shell.",
+                        help=t["half_pipe_turn_count_help"],
                     )
+                    jacket_coverage = min((half_pipe_turn_count * j_pitch) / tt_len, 1.0) if tt_len > 0 else 0.0
+                    st.caption(t["implied_half_pipe_coverage"].format(coverage_pct=jacket_coverage * 100))
                 else:
+                    jacket_coverage = st.number_input(
+                        t["half_pipe_coverage_label"],
+                        value=init.get("jacket_coverage", 80.0),
+                        min_value=1.0,
+                        max_value=100.0,
+                        step=1.0,
+                        help=t["half_pipe_coverage_help"],
+                    ) / 100.0
                     half_pipe_turn_count = None
             elif jacket_type == "Conventional (with Baffle)":
                 j_dim = st.number_input("Annular Gap (mm)", value=init.get("j_dim", 50.0), help=t["h_jdim"]) / 1000.0
                 j_pitch = st.number_input("Baffle Pitch (mm)", value=init.get("j_pitch", 200.0), help=t["h_jpitch"]) / 1000.0
+                jacket_coverage = st.number_input("Jacket Straight Coverage (%)", value=init.get("jacket_coverage", 80.0), help=t["h_cov"], min_value=1.0, max_value=100.0, step=1.0) / 100.0
                 half_pipe_mode = "coverage"
                 half_pipe_turn_count = None
             else:
                 j_dim, j_pitch = 0.0, 0.0
+                jacket_coverage = st.number_input("Jacket Straight Coverage (%)", value=init.get("jacket_coverage", 80.0), help=t["h_cov"], min_value=1.0, max_value=100.0, step=1.0) / 100.0
                 half_pipe_mode = "coverage"
                 half_pipe_turn_count = None
 
@@ -311,7 +325,7 @@ with tab2:
     st.info(desc_hi_ui)
     hi_calc_html = ""
     if "None" in agit_type:
-        st.write(f"**Agitator Type: {agit_type}** | 자연 대류(Natural Convection) 적용 (가정: delta T = 10 K, beta = 0.0002)")
+        st.write(f"**{t['natural_convection_note'].format(agit_type=agit_type)}**")
         st.latex(r"Gr = \frac{\rho_p^2 \cdot g \cdot \beta \cdot \Delta T \cdot D_{in}^3}{\mu_p^2} = " + f"{Gr:,.0f}")
         st.latex(r"Pr_p = \frac{C_{p,p} \cdot \mu_p}{k_p} = " + f"{Pr_p:.2f}")
         st.latex(r"Ra = Gr \cdot Pr_p = " + f"{Ra:,.0f}")
@@ -349,8 +363,11 @@ with tab2:
 
     ho_calc_html = ""
     if jacket_type == "Half-Pipe":
-        basis_text = f"direct turn count = {half_pipe_turn_count:.1f}" if half_pipe_mode == "turns" and half_pipe_turn_count is not None else f"pitch = {j_pitch*1000:.1f} mm with covered height ratio"
-        st.write(f"**Jacket Type: {jacket_type}** | helical half-pipe 기준, {basis_text}, turns ≈ {half_pipe_turns:.1f}")
+        if half_pipe_mode == "turns" and half_pipe_turn_count is not None:
+            basis_text = t["half_pipe_basis_turns"].format(turns=half_pipe_turn_count, pitch_mm=j_pitch * 1000)
+        else:
+            basis_text = t["half_pipe_basis_coverage"].format(pitch_mm=j_pitch * 1000, coverage_pct=jacket_coverage * 100)
+        st.write(f"**Jacket Type: {jacket_type}** | {basis_text}, turns ≈ {half_pipe_turns:.1f}")
         if half_pipe_mode == "turns" and half_pipe_turn_count is not None:
             st.latex(r"N_{turns} = " + f"{half_pipe_turn_count:.2f}")
             st.latex(r"L_{covered} = N_{turns} \cdot pitch = " + f"{half_pipe_turns:.2f} \times {j_pitch:.3f} = {half_pipe_turns * j_pitch:.3f}" + r" \text{ m}")
@@ -367,7 +384,7 @@ with tab2:
         mode_label = "Direct turns" if half_pipe_mode == "turns" and half_pipe_turn_count is not None else "Coverage-based"
         ho_calc_html = f"Mode = {mode_label} <br> Pitch = {j_pitch*1000:.1f} mm <br> Turns = {half_pipe_turns:.2f} <br> Total helix length = {half_pipe_helix_length:.3f} m <br> A<sub>c</sub> = {A_cross:.5f} m&sup2; <br> D<sub>e</sub> = {De:.4f} m <br> v<sub>s</sub> = {v_s:.2f} m/s <br> Re<sub>o</sub> = {Re_s:,.0f} <br> Nu<sub>o</sub> = 0.023 &middot; Re<sub>o</sub><sup>0.8</sup> &middot; Pr<sub>s</sub><sup>0.4</sup> = {Nu_s:.1f} <br> h<sub>o</sub> = {h_o_calc:.1f} W/m&sup2;K <br> Effective contact area = {a_jacket:.3f} m&sup2; (incl. head area)"
     elif jacket_type == "Conventional (with Baffle)":
-        st.write(f"**Jacket Type: {jacket_type}** | Annular Gap 및 Baffle Pitch 적용")
+        st.write(f"**{t['conventional_jacket_note'].format(jacket_type=jacket_type)}**")
         st.latex(r"A_c = Gap \times Pitch = " + f"{j_dim} \\times {j_pitch}" + r" = " + f"{A_cross:.5f}" + r" \text{ m}^2")
         st.latex(r"D_e = 2 \cdot Gap = 2 \cdot " + f"{j_dim}" + r" = " + f"{De:.4f}" + r" \text{ m}")
         st.latex(r"v_s = \frac{Q_{sec}}{A_c} = \frac{" + f"{Q_sec:.5f}" + r"}{" + f"{A_cross:.5f}" + r"} = " + f"{v_s:.2f}" + r" \text{ m/s}")

@@ -43,7 +43,22 @@ i18n = {
         
         "h_stype": "Pre-configured heat transfer fluid curves. Custom option allows inputting 2 datapoints for linear interpolation.",
         "h_qserv": "Volumetric flow rate of the utility fluid entering the jacket. Directly drives the Reynolds number and effective Effectiveness (ε).",
-        "h_tserv": "Inlet supply temperature of the utility fluid from the utility header."
+        "h_tserv": "Inlet supply temperature of the utility fluid from the utility header.",
+        "half_pipe_input_mode": "Half-Pipe Input Mode",
+        "half_pipe_mode_help": "Choose whether the half-pipe is defined by covered shell height ratio or by directly entered wrap count.",
+        "half_pipe_mode_coverage": "coverage",
+        "half_pipe_mode_turns": "turns",
+        "half_pipe_pitch_label": "Half-Pipe Pitch (mm)",
+        "half_pipe_pitch_help": "Helical pitch between half-pipe centerlines.",
+        "half_pipe_turn_count_label": "Half-Pipe Turn Count",
+        "half_pipe_turn_count_help": "Directly specify how many helical wraps are installed on the straight shell.",
+        "half_pipe_coverage_label": "Half-Pipe Covered Straight Height (%)",
+        "half_pipe_coverage_help": "Percentage of the straight shell height actually wrapped by the half-pipe helix.",
+        "half_pipe_basis_coverage": "pitch = {pitch_mm:.1f} mm with covered height ratio = {coverage_pct:.1f}%",
+        "half_pipe_basis_turns": "direct turn count = {turns:.1f} with pitch = {pitch_mm:.1f} mm",
+        "natural_convection_note": "Agitator Type: {agit_type} | Natural convection assumed (delta T = 10 K, beta = 0.0002)",
+        "conventional_jacket_note": "Jacket Type: {jacket_type} | annular gap and baffle pitch basis applied",
+        "implied_half_pipe_coverage": "Implied covered straight height ratio: {coverage_pct:.1f}%"
     },
     "ko": {
         "title": "🏭 자켓 반응기 공정 설계 & 시뮬레이션",
@@ -89,6 +104,21 @@ i18n = {
         
         "h_stype": "자켓으로 공급되는 열매체, 냉매체 종류 예약 프리셋. Custom을 선택하면 선형 보간을 위해 직접 물성을 입력할 수 있습니다.",
         "h_qserv": "시간당 자켓에 유입되는 서비스 유체의 부피 유량(m³/h). 유량이 높을수록 열전달 면의 유속이 높아져 벽면 정체 현상을 막습니다.",
-        "h_tserv": "외부 유틸리티 설비(보일러, 칠러 등)에서 자켓 입구로 공급되는 서비스 유체의 절대 온도."
+        "h_tserv": "외부 유틸리티 설비(보일러, 칠러 등)에서 자켓 입구로 공급되는 서비스 유체의 절대 온도.",
+        "half_pipe_input_mode": "하프파이프 입력 기준",
+        "half_pipe_mode_help": "하프파이프를 직관부 피복률 기준으로 입력할지, 실제 권취 수를 직접 입력할지 선택합니다.",
+        "half_pipe_mode_coverage": "coverage",
+        "half_pipe_mode_turns": "turns",
+        "half_pipe_pitch_label": "하프파이프 피치 (mm)",
+        "half_pipe_pitch_help": "하프파이프 중심선 간 나선 피치입니다.",
+        "half_pipe_turn_count_label": "하프파이프 권취 수 (turns)",
+        "half_pipe_turn_count_help": "직관부에 실제로 감긴 하프파이프 권취 수를 직접 입력합니다.",
+        "half_pipe_coverage_label": "하프파이프 직관부 피복률 (%)",
+        "half_pipe_coverage_help": "직관부 높이 중 하프파이프가 실제로 감기는 비율입니다.",
+        "half_pipe_basis_coverage": "피치 = {pitch_mm:.1f} mm, 직관부 피복률 = {coverage_pct:.1f}% 기준",
+        "half_pipe_basis_turns": "직접 입력 권취 수 = {turns:.1f}, 피치 = {pitch_mm:.1f} mm 기준",
+        "natural_convection_note": "교반기 타입: {agit_type} | 자연 대류 가정 적용 (delta T = 10 K, beta = 0.0002)",
+        "conventional_jacket_note": "자켓 타입: {jacket_type} | 환상 유로와 배플 피치 기준 적용",
+        "implied_half_pipe_coverage": "환산 직관부 피복률: {coverage_pct:.1f}%"
     }
 }
