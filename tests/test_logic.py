@@ -126,6 +126,8 @@ def test_build_share_state_preserves_extended_fields():
         t_service=150.0,
         custom_fluid_data={"t1": 20.0, "t2": 100.0},
         lang_opt="ko",
+        half_pipe_mode="turns",
+        half_pipe_turn_count=18.0,
     )
 
     assert state["has_rxn"] is True
@@ -135,3 +137,5 @@ def test_build_share_state_preserves_extended_fields():
     assert state["service_fluid_type"] == "Custom"
     assert state["custom_fluid_data"] == {"t1": 20.0, "t2": 100.0}
     assert state["lang_opt"] == "ko"
+    assert state["half_pipe_mode"] == "turns"
+    assert state["half_pipe_turn_count"] == pytest.approx(18.0)

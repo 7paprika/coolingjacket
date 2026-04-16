@@ -34,6 +34,8 @@ class SimulationInputs:
     time_limit_min: float
     jacket_type: str = "Half-Pipe"
     j_pitch: float = 0.0
+    half_pipe_mode: str = "coverage"
+    half_pipe_turn_count: float | None = None
 
 
 def validate_inputs(inputs: SimulationInputs) -> list[str]:
@@ -48,6 +50,11 @@ def validate_inputs(inputs: SimulationInputs) -> list[str]:
         errors.append("jacket_coverage must be between 0 and 1.")
     if inputs.jacket_type == "Half-Pipe" and inputs.j_pitch <= 0:
         errors.append("half-pipe pitch must be greater than zero.")
+    if inputs.jacket_type == "Half-Pipe" and inputs.half_pipe_mode not in {"coverage", "turns"}:
+        errors.append("half-pipe mode must be either 'coverage' or 'turns'.")
+    if inputs.jacket_type == "Half-Pipe" and inputs.half_pipe_mode == "turns":
+        if inputs.half_pipe_turn_count is None or inputs.half_pipe_turn_count <= 0:
+            errors.append("half-pipe turn count must be greater than zero in turns mode.")
     if inputs.d_agit < 0:
         errors.append("agitator diameter must not be negative.")
     if inputs.d_agit >= inputs.d_in:
@@ -112,19 +119,26 @@ def build_share_state(**kwargs: Any) -> dict[str, Any]:
 def calculate_half_pipe_geometry(
     vessel_outer_diameter: float,
     straight_length: float,
-    coverage_fraction: float,
     half_pipe_width: float,
     pitch: float,
+    mode: str = "coverage",
+    coverage_fraction: float = 1.0,
+    turn_count: float | None = None,
 ) -> HalfPipeGeometry:
-    covered_height = straight_length * coverage_fraction
-    if pitch <= 0 or half_pipe_width <= 0 or covered_height <= 0:
-        return HalfPipeGeometry(0.0, 0.0, 0.0, max(covered_height, 0.0))
+    if pitch <= 0 or half_pipe_width <= 0 or straight_length <= 0:
+        return HalfPipeGeometry(0.0, 0.0, 0.0, 0.0)
 
-    turn_count = covered_height / pitch
+    if mode == "turns":
+        actual_turn_count = max(turn_count or 0.0, 0.0)
+        covered_height = actual_turn_count * pitch
+    else:
+        covered_height = straight_length * coverage_fraction
+        actual_turn_count = covered_height / pitch if pitch > 0 else 0.0
+
     helix_per_turn = math.sqrt((math.pi * vessel_outer_diameter) ** 2 + pitch**2)
-    total_helix_length = turn_count * helix_per_turn
+    total_helix_length = actual_turn_count * helix_per_turn
     contact_area = total_helix_length * half_pipe_width
-    return HalfPipeGeometry(turn_count, total_helix_length, contact_area, covered_height)
+    return HalfPipeGeometry(actual_turn_count, total_helix_length, contact_area, covered_height)
 
 
 def calculate_hi(rho, mu, cp, k_p, N_rps, d_agit, d_in, agit_type):
@@ -160,7 +174,23 @@ def calculate_hi(rho, mu, cp, k_p, N_rps, d_agit, d_in, agit_type):
     return h_i, Nu_p, Re_agit, Pr_p, nu_const, 0, 0
 
 
-def calculate_ho_area(jacket_type, j_dim, j_pitch, Q_sec, rho_s, mu_s, cp_s, k_s, d_in, wall_thk, tt_len, jacket_coverage, head_type):
+def calculate_ho_area(
+    jacket_type,
+    j_dim,
+    j_pitch,
+    Q_sec,
+    rho_s,
+    mu_s,
+    cp_s,
+    k_s,
+    d_in,
+    wall_thk,
+    tt_len,
+    jacket_coverage,
+    head_type,
+    half_pipe_mode="coverage",
+    half_pipe_turn_count=None,
+):
     Pr_s = (cp_s * mu_s) / k_s
     A_cross = 0
     De = 0
@@ -176,7 +206,15 @@ def calculate_ho_area(jacket_type, j_dim, j_pitch, Q_sec, rho_s, mu_s, cp_s, k_s
         Re_s = (rho_s * v_s * De) / mu_s if mu_s > 0 else 0
         Nu_s = 0.023 * (Re_s**0.8) * (Pr_s**0.4) if Re_s > 0 else 0
         h_o = (Nu_s * k_s) / De if De > 0 else 0
-        half_pipe_geometry = calculate_half_pipe_geometry(d_out, tt_len, jacket_coverage, j_dim, j_pitch)
+        half_pipe_geometry = calculate_half_pipe_geometry(
+            vessel_outer_diameter=d_out,
+            straight_length=tt_len,
+            half_pipe_width=j_dim,
+            pitch=j_pitch,
+            mode=half_pipe_mode,
+            coverage_fraction=jacket_coverage,
+            turn_count=half_pipe_turn_count,
+        )
         half_pipe_turns = half_pipe_geometry.turn_count
         half_pipe_helix_length = half_pipe_geometry.helix_length_m
         straight_contact_area = half_pipe_geometry.contact_area_m2

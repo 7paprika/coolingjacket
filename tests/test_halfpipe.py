@@ -9,8 +9,9 @@ def test_calculate_half_pipe_geometry_uses_pitch_to_determine_turn_count_and_are
     geometry = calculate_half_pipe_geometry(
         vessel_outer_diameter=2.024,
         straight_length=3.0,
-        coverage_fraction=0.8,
         half_pipe_width=0.08,
+        mode="coverage",
+        coverage_fraction=0.8,
         pitch=0.10,
     )
 
@@ -20,9 +21,26 @@ def test_calculate_half_pipe_geometry_uses_pitch_to_determine_turn_count_and_are
     expected_total_helix = expected_turns * expected_helix_per_turn
     expected_contact_area = expected_total_helix * 0.08
 
+    assert geometry.covered_height_m == pytest.approx(expected_covered_height)
     assert geometry.turn_count == pytest.approx(expected_turns)
     assert geometry.helix_length_m == pytest.approx(expected_total_helix)
     assert geometry.contact_area_m2 == pytest.approx(expected_contact_area)
+
+
+def test_calculate_half_pipe_geometry_can_use_direct_turn_count_input():
+    geometry = calculate_half_pipe_geometry(
+        vessel_outer_diameter=2.024,
+        straight_length=3.0,
+        half_pipe_width=0.08,
+        mode="turns",
+        pitch=0.10,
+        turn_count=18.0,
+    )
+
+    expected_helix_per_turn = math.sqrt((math.pi * 2.024) ** 2 + 0.10 ** 2)
+    assert geometry.turn_count == pytest.approx(18.0)
+    assert geometry.covered_height_m == pytest.approx(1.8)
+    assert geometry.helix_length_m == pytest.approx(18.0 * expected_helix_per_turn)
 
 
 def test_calculate_ho_area_for_half_pipe_returns_turns_based_area_not_full_shell_area():
@@ -40,6 +58,8 @@ def test_calculate_ho_area_for_half_pipe_returns_turns_based_area_not_full_shell
         tt_len=3.0,
         jacket_coverage=0.8,
         head_type="2:1 Ellipsoidal",
+        half_pipe_mode="coverage",
+        half_pipe_turn_count=None,
     )
 
     (
@@ -60,3 +80,25 @@ def test_calculate_ho_area_for_half_pipe_returns_turns_based_area_not_full_shell
     assert half_pipe_turns == pytest.approx((3.0 * 0.8) / 0.10)
     assert half_pipe_helix_length > math.pi * (2.0 + 2 * 0.012)
     assert a_jacket < (math.pi * (2.0 + 2 * 0.012) * 3.0 * 0.8) + 1.084 * ((2.0 + 2 * 0.012) ** 2)
+
+
+def test_calculate_ho_area_for_half_pipe_can_use_direct_turn_count():
+    result = calculate_ho_area(
+        jacket_type="Half-Pipe",
+        j_dim=0.08,
+        j_pitch=0.10,
+        Q_sec=15.0 / 3600.0,
+        rho_s=917.0,
+        mu_s=0.18e-3,
+        cp_s=4310.0,
+        k_s=0.683,
+        d_in=2.0,
+        wall_thk=0.012,
+        tt_len=3.0,
+        jacket_coverage=0.8,
+        head_type="2:1 Ellipsoidal",
+        half_pipe_mode="turns",
+        half_pipe_turn_count=18.0,
+    )
+
+    assert result[9] == pytest.approx(18.0)

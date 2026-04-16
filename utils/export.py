@@ -37,7 +37,7 @@ def generate_html(ctx):
             <tr><th>Inside Coefficient (h_i)</th><td>{ctx['hi']:.1f} W/m²K</td><th>Outside Coefficient (h_o)</th><td>{ctx['ho']:.1f} W/m²K</td></tr>
             <tr><th>Calculated U-Value</th><td>{ctx['U']:.1f} W/m²K</td><th>Effectiveness (ε) / NTU</th><td>{ctx['epsilon']:.3f} / {ctx['NTU']:.2f}</td></tr>
         </table>
-        {f"<table><tr><th>Half-Pipe Pitch</th><td>{ctx['half_pipe_pitch_mm']} mm</td><th>Estimated Turns</th><td>{ctx['half_pipe_turns']}</td></tr><tr><th>Total Helix Length</th><td>{ctx['half_pipe_helix_length_m']} m</td><th colspan='2'></th></tr></table>" if ctx.get('half_pipe_turns') is not None else ''}
+        {f"<table><tr><th>Half-Pipe Input Mode</th><td>{ctx.get('half_pipe_mode')}</td><th>Half-Pipe Pitch</th><td>{ctx['half_pipe_pitch_mm']} mm</td></tr><tr><th>Estimated Turns</th><td>{ctx['half_pipe_turns']}</td><th>Total Helix Length</th><td>{ctx['half_pipe_helix_length_m']} m</td></tr></table>" if ctx.get('half_pipe_turns') is not None else ''}
         
         <h2>3. Dynamic Simulation Summary</h2>
         <table>
